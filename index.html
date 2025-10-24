@@ -3,244 +3,347 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lightbox SAM - Optimisé</title>
+  <title>Lightbox Finale</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
       padding: 20px;
       background: #f9f9f9;
       color: #333;
+      margin: 0;
+      overflow-x: hidden;
     }
     .container {
       max-width: 600px;
       margin: 0 auto;
     }
-    input, button {
+    canvas {
+      display: block;
       width: 100%;
-      padding: 12px;
-      margin: 10px 0;
-      border-radius: 10px;
+      max-width: 400px;
+      height: auto;
       border: 1px solid #ddd;
-      font-size: 16px;
+      border-radius: 8px;
+      margin: 10px 0;
+      touch-action: none;
     }
     button {
       background: #007AFF;
       color: white;
       border: none;
+      padding: 10px 15px;
+      font-size: 14px;
+      border-radius: 8px;
+      margin: 5px;
       cursor: pointer;
+      min-width: 100px;
     }
-    canvas {
+    input {
       width: 100%;
-      max-width: 400px;
-      height: auto;
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 8px;
       border: 1px solid #ddd;
+    }
+    .layer-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
       margin: 10px 0;
     }
-    #login, #setup { display: none; }
-    .info { font-size: 0.9em; color: #666; margin: 10px 0; }
-    .mask { margin: 15px 0; padding: 10px; background: white; border-radius: 8px; }
-    .error { color: red; font-weight: bold; }
+    .layer {
+      margin: 15px 0;
+      padding: 10px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .download-btn {
+      background: #34C759;
+      font-size: 14px;
+      padding: 6px 10px;
+      width: auto;
+      margin-top: 8px;
+    }
+    .info {
+      font-size: 0.9em;
+      color: #666;
+      margin: 10px 0;
+    }
+    .tool {
+      background: #FF9500;
+      font-size: 14px;
+      padding: 6px 10px;
+      margin: 0 5px;
+    }
+    .active-tool {
+      background: #FF6B00;
+    }
+    #login, #app { display: none; }
   </style>
 </head>
 <body>
   <div id="login" class="container">
     <h2>🔒 Accès privé</h2>
-    <p>Entrez le mot de passe pour continuer.</p>
+    <p>Entrez le mot de passe pour accéder à votre Lightbox.</p>
     <input type="password" id="pwd" placeholder="Mot de passe" />
     <button onclick="checkPassword()">Accéder</button>
   </div>
 
-  <div id="setup" class="container">
-    <h2>🔑 Clé Hugging Face</h2>
-    <p class="info">Colle ta clé API Hugging Face (commence par hf_...)</p>
-    <input type="password" id="hfKey" placeholder="hf_xxx..." />
-    <button onclick="saveKey()">Sauvegarder</button>
-  </div>
-
   <div id="app" class="container">
-    <h1>✨ Lightbox SAM - Optimisé</h1>
-    <p class="info">Charge une image → l'IA découpe les objets (max 600px)</p>
+    <h1>✨ Lightbox Manuelle</h1>
+    <p class="info">Dessinez vos calques à la main — fonctionne sur iPhone</p>
+    
     <input type="file" id="imageInput" accept="image/*">
-    <button id="segmentBtn" disabled>Analyser avec SAM</button>
-    <div id="status"></div>
+
+    <p>Nombre de calques :</p>
+    <input type="range" id="layerCount" min="2" max="6" value="4">
+    <span id="layerCountValue">4</span>
+
+    <button id="processBtn" disabled>Créer les calques</button>
+
+    <div class="layer-controls" id="toolControls"></div>
     <div id="results"></div>
   </div>
 
-  <canvas id="canvas"></canvas>
+  <canvas id="mainCanvas"></canvas>
 
   <script>
     const CORRECT_PWD = "27071985-Js";
-    const HF_MODEL = "facebook/sam-vit-base";
 
     function checkPassword() {
-      if (document.getElementById('pwd').value === CORRECT_PWD) {
+      const input = document.getElementById('pwd').value;
+      if (input === CORRECT_PWD) {
         document.getElementById('login').style.display = 'none';
-        const key = localStorage.getItem('hf_key');
-        if (key) {
-          document.getElementById('app').style.display = 'block';
-        } else {
-          document.getElementById('setup').style.display = 'block';
-        }
+        document.getElementById('app').style.display = 'block';
+        localStorage.setItem('access_granted', 'true');
       } else {
         alert('❌ Mot de passe incorrect.');
       }
     }
 
-    function saveKey() {
-      const key = document.getElementById('hfKey').value.trim();
-      if (key && key.startsWith('hf_')) {
-        localStorage.setItem('hf_key', key);
-        document.getElementById('setup').style.display = 'none';
-        document.getElementById('app').style.display = 'block';
-      } else {
-        alert('⚠️ La clé doit commencer par "hf_"');
-      }
-    }
-
-    // Vérifier accès sauvegardé
-    if (localStorage.getItem('lightbox_access') === 'granted') {
-      const key = localStorage.getItem('hf_key');
-      if (key) {
-        document.getElementById('app').style.display = 'block';
-      } else {
-        document.getElementById('setup').style.display = 'block';
-      }
+    // Accès sauvegardé ?
+    if (localStorage.getItem('access_granted') === 'true') {
+      document.getElementById('app').style.display = 'block';
     } else {
       document.getElementById('login').style.display = 'block';
     }
 
-    // Charger l'image
+    // Reste du code...
+    const imageInput = document.getElementById('imageInput');
+    const layerCountSlider = document.getElementById('layerCount');
+    const layerCountValue = document.getElementById('layerCountValue');
+    const processBtn = document.getElementById('processBtn');
+    const resultsDiv = document.getElementById('results');
+    const toolControls = document.getElementById('toolControls');
+    const mainCanvas = document.getElementById('mainCanvas');
+    const ctx = mainCanvas.getContext('2d');
+
     let originalImage = null;
-    document.getElementById('imageInput').addEventListener('change', async (e) => {
-      if (!e.target.files[0]) return;
-      const url = URL.createObjectURL(e.target.files[0]);
-      originalImage = new Image();
-      originalImage.onload = () => {
-        // Redimensionner à 600px max
-        const maxWidth = 600;
-        const scale = Math.min(1, maxWidth / originalImage.width);
-        const newWidth = Math.floor(originalImage.width * scale);
-        const newHeight = Math.floor(originalImage.height * scale);
+    let layers = [];
+    let currentLayer = 0;
+    let isDrawing = false;
+    let tool = 'paint'; // 'paint' ou 'erase'
 
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = newWidth;
-        tempCanvas.height = newHeight;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.drawImage(originalImage, 0, 0, newWidth, newHeight);
-
-        // Mettre dans le canvas principal
-        const canvas = document.getElementById('canvas');
-        canvas.width = newWidth;
-        canvas.height = newHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(tempCanvas, 0, 0);
-
-        document.getElementById('segmentBtn').disabled = false;
-        URL.revokeObjectURL(url);
-      };
-      originalImage.src = url;
+    layerCountSlider.addEventListener('input', () => {
+      layerCountValue.textContent = layerCountSlider.value;
     });
 
-    // Appel à SAM via Hugging Face
-    document.getElementById('segmentBtn').addEventListener('click', async () => {
+    imageInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          originalImage = new Image();
+          originalImage.onload = () => {
+            processBtn.disabled = false;
+            const maxWidth = 600;
+            const scale = Math.min(1, maxWidth / originalImage.width);
+            mainCanvas.width = originalImage.width * scale;
+            mainCanvas.height = originalImage.height * scale;
+            ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+            ctx.drawImage(originalImage, 0, 0, mainCanvas.width, mainCanvas.height);
+          };
+          originalImage.src = event.target.result;
+        };
+        reader.readAsDataURL(e.target.files[0]);
+      }
+    });
+
+    processBtn.addEventListener('click', initManualLayers);
+
+    function initManualLayers() {
       if (!originalImage) return;
-      
-      const status = document.getElementById('status');
-      const results = document.getElementById('results');
-      results.innerHTML = '';
-      status.innerHTML = '🔄 Envoi à l\'IA...';
 
-      const canvas = document.getElementById('canvas');
-      const ctx = canvas.getContext('2d');
+      const layersCount = parseInt(layerCountSlider.value);
+      layers = [];
 
-      // Convertir en blob
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-      const arrayBuffer = await blob.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-
-      const hfKey = localStorage.getItem('hf_key');
-      status.innerHTML = '🧠 Analyse par SAM...';
-
-      try {
-        status.innerHTML = '📡 Envoi à Hugging Face...';
-        
-        const response = await fetch(`https://api-inference.huggingface.co/models/${HF_MODEL}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${hfKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            inputs: { image: base64 }
-          })
+      for (let i = 0; i < layersCount; i++) {
+        layers.push({
+          name: `Calque ${i + 1}`,
+          data: new Uint8ClampedArray(mainCanvas.width * mainCanvas.height * 4),
+          visible: true
         });
+      }
 
-        if (!response.ok) {
-          const error = await response.text();
-          throw new Error(`❌ Erreur API : ${response.status} - ${error}`);
+      currentLayer = 0;
+      updateUI();
+      drawAllLayers();
+    }
+
+    function updateUI() {
+      toolControls.innerHTML = '';
+      resultsDiv.innerHTML = '';
+
+      // Boutons calques
+      for (let i = 0; i < layers.length; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = `Calque ${i + 1}`;
+        btn.onclick = () => {
+          currentLayer = i;
+          updateUI();
+        };
+        if (i === currentLayer) {
+          btn.classList.add('active-tool');
         }
-
-        status.innerHTML = '⏳ Attente de la réponse...';
-        const masks = await response.json(); // Tableau de masques binaires
-        status.innerHTML = `✅ ${masks.length} objets détectés !`;
-
-        results.innerHTML = '';
-        masks.forEach((maskData, i) => {
-          const maskCanvas = document.createElement('canvas');
-          maskCanvas.width = canvas.width;
-          maskCanvas.height = canvas.height;
-          const maskCtx = maskCanvas.getContext('2d');
-
-          // Convertir le masque (0/1) en image noire et blanche
-          const imgData = maskCtx.createImageData(canvas.width, canvas.height);
-          for (let y = 0; y < canvas.height; y++) {
-            for (let x = 0; x < canvas.width; x++) {
-              const idx = (y * canvas.width + x) * 4;
-              const val = maskData[y * canvas.width + x] ? 255 : 0;
-              imgData.data[idx] = val;     // R
-              imgData.data[idx + 1] = val; // G
-              imgData.data[idx + 2] = val; // B
-              imgData.data[idx + 3] = 255; // A
-            }
-          }
-          maskCtx.putImageData(imgData, 0, 0);
-
-          // Téléchargement
-          const pngUrl = maskCanvas.toDataURL('image/png');
-          const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">
-  <image href="${pngUrl}" width="${canvas.width}" height="${canvas.height}"/>
-</svg>`;
-
-          const div = document.createElement('div');
-          div.className = 'mask';
-          div.innerHTML = `
-            <h3>Objet ${i + 1}</h3>
-            <img src="${pngUrl}" style="max-width:200px; border:1px solid #eee; border-radius:6px;">
-            <br><br>
-            <button onclick="downloadFile('objet_${i + 1}.png', '${pngUrl}')">📥 PNG</button>
-            <button onclick="downloadFile('objet_${i + 1}.svg', \`${svg}\`)">📥 SVG</button>
-          `;
-          results.appendChild(div);
-        });
-
-      } catch (err) {
-        status.innerHTML = `<span class="error">❌ Erreur : ${err.message}</span>`;
-        console.error(err);
+        toolControls.appendChild(btn);
       }
-    });
 
-    function downloadFile(filename, content) {
-      const a = document.createElement('a');
-      if (filename.endsWith('.svg')) {
-        const blob = new Blob([content], { type: 'image/svg+xml' });
-        a.href = URL.createObjectURL(blob);
+      // Outils
+      const paintBtn = document.createElement('button');
+      paintBtn.textContent = 'Dessiner';
+      paintBtn.className = tool === 'paint' ? 'active-tool' : '';
+      paintBtn.onclick = () => { tool = 'paint'; updateUI(); };
+      toolControls.appendChild(paintBtn);
+
+      const eraseBtn = document.createElement('button');
+      eraseBtn.textContent = 'Effacer';
+      eraseBtn.className = tool === 'erase' ? 'active-tool' : '';
+      eraseBtn.onclick = () => { tool = 'erase'; updateUI(); };
+      toolControls.appendChild(eraseBtn);
+
+      // Téléchargements
+      for (let i = 0; i < layers.length; i++) {
+        const div = document.createElement('div');
+        div.className = 'layer';
+        div.innerHTML = `
+          <h3>${layers[i].name}</h3>
+          <button class="download-btn" onclick="downloadLayer(${i}, 'svg')">📥 SVG</button>
+          <button class="download-btn" onclick="downloadLayer(${i}, 'png')">🖼️ PNG</button>
+        `;
+        resultsDiv.appendChild(div);
+      }
+    }
+
+    // Gestion tactile
+    mainCanvas.addEventListener('mousedown', startDraw);
+    mainCanvas.addEventListener('touchstart', startDraw);
+    mainCanvas.addEventListener('mousemove', draw);
+    mainCanvas.addEventListener('touchmove', draw);
+    mainCanvas.addEventListener('mouseup', endDraw);
+    mainCanvas.addEventListener('touchend', endDraw);
+
+    function startDraw(e) {
+      e.preventDefault();
+      isDrawing = true;
+      const pos = getMousePos(mainCanvas, e);
+      drawPixel(pos.x, pos.y);
+    }
+
+    function draw(e) {
+      if (!isDrawing) return;
+      e.preventDefault();
+      const pos = getMousePos(mainCanvas, e);
+      drawPixel(pos.x, pos.y);
+    }
+
+    function endDraw() {
+      isDrawing = false;
+      drawAllLayers();
+    }
+
+    function getMousePos(canvas, evt) {
+      const rect = canvas.getBoundingClientRect();
+      if (evt.touches) {
+        return {
+          x: evt.touches[0].clientX - rect.left,
+          y: evt.touches[0].clientY - rect.top
+        };
       } else {
-        a.href = content;
+        return {
+          x: evt.clientX - rect.left,
+          y: evt.clientY - rect.top
+        };
       }
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    }
+
+    function drawPixel(x, y) {
+      const index = Math.floor(y) * mainCanvas.width + Math.floor(x);
+      const offset = index * 4;
+
+      if (tool === 'paint') {
+        layers[currentLayer].data[offset] = 255;     // R
+        layers[currentLayer].data[offset + 1] = 255; // G
+        layers[currentLayer].data[offset + 2] = 255; // B
+        layers[currentLayer].data[offset + 3] = 255; // A
+      } else if (tool === 'erase') {
+        layers[currentLayer].data[offset] = 0;       // R
+        layers[currentLayer].data[offset + 1] = 0;   // G
+        layers[currentLayer].data[offset + 2] = 0;   // B
+        layers[currentLayer].data[offset + 3] = 0;   // A
+      }
+    }
+
+    function drawAllLayers() {
+      ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+      ctx.drawImage(originalImage, 0, 0, mainCanvas.width, mainCanvas.height);
+
+      for (let i = 0; i < layers.length; i++) {
+        if (!layers[i].visible) continue;
+
+        const imageData = new ImageData(layers[i].data, mainCanvas.width, mainCanvas.height);
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = mainCanvas.width;
+        tempCanvas.height = mainCanvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(imageData, 0, 0);
+
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(tempCanvas, 0, 0);
+        ctx.globalAlpha = 1.0;
+      }
+    }
+
+    function downloadLayer(index, format) {
+      const layerData = layers[index].data;
+      const imageData = new ImageData(layerData, mainCanvas.width, mainCanvas.height);
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = mainCanvas.width;
+      tempCanvas.height = mainCanvas.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.putImageData(imageData, 0, 0);
+
+      if (format === 'png') {
+        const url = tempCanvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `calque_${index + 1}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else if (format === 'svg') {
+        const dataURL = tempCanvas.toDataURL('image/png');
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${mainCanvas.width}" height="${mainCanvas.height}">
+  <image href="${dataURL}" width="${mainCanvas.width}" height="${mainCanvas.height}"/>
+</svg>`;
+        const blob = new Blob([svg], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `calque_${index + 1}.svg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
     }
   </script>
 </body>
